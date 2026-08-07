@@ -1,0 +1,94 @@
+name: sot-analyzer
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: sot_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-sot_analyzer}
+      # Deterministic collation so ORDER BY on names is stable across hosts.
+      POSTGRES_INITDB_ARGS: "--locale-provider=icu --icu-locale=en-US"
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # `pg_isready` alone returns success before the DB accepts real queries,
+      # so run an actual query to gate dependent services.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sot} -d ${POSTGRES_DB:-sot_analyzer} && psql -U ${POSTGRES_USER:-sot} -d ${POSTGRES_DB:-sot_analyzer} -c 'SELECT 1' > /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: sot_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_JSON: ${LOG_JSON:-false}
+      POSTGRES_USER: ${POSTGRES_USER:-sot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-sot_analyzer}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:?ADMIN_API_TOKEN must be set in .env}
+      FOOTBALL_PROVIDER: ${FOOTBALL_PROVIDER:-fake}
+      FOOTBALL_API_KEY: ${FOOTBALL_API_KEY:-}
+      FOOTBALL_API_BASE_URL: ${FOOTBALL_API_BASE_URL:-https://v3.football.api-sports.io}
+      SPORTS_API_PRO_KEY: ${SPORTS_API_PRO_KEY:-}
+      SPORTS_API_PRO_BASE_URL: ${SPORTS_API_PRO_BASE_URL:-https://v2.football.sportsapipro.com}
+      SPORTS_API_PRO_HISTORY_PAGES: ${SPORTS_API_PRO_HISTORY_PAGES:-1}
+      FOOTBALL_API_RATE_LIMIT_PER_MINUTE: ${FOOTBALL_API_RATE_LIMIT_PER_MINUTE:-30}
+    ports:
+      - "8000:8000"
+    volumes:
+      # Bind-mount for hot reload in development. The production target does
+      # not mount source; it ships the code baked into the image.
+      - ./backend:/app
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health/live', timeout=3).status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: sot_frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      # Browser-visible URL (requests originate from the user's machine).
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api}
+      # Server-side URL used by React Server Components inside the container.
+      INTERNAL_API_BASE_URL: http://backend:8000/api
+      WATCHPACK_POLLING: "true"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      # Anonymous volumes keep container-built artefacts from being shadowed
+      # by the host bind-mount (host node_modules may be absent or wrong-arch).
+      - /app/node_modules
+      - /app/.next
+
+volumes:
+  pgdata:

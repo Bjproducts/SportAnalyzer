@@ -1,0 +1,13 @@
+[build]
+  base = "frontend"
+  command = "npm run build:netlify"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+  NETLIFY_NEXT_SKEW_PROTECTION = "true"
+  NEXT_TELEMETRY_DISABLED = "1"
+
+# Netlify's maintained OpenNext adapter is detected automatically. Do not pin
+# @netlify/plugin-nextjs: automatic updates keep the site compatible with new
+# stable Next.js releases.

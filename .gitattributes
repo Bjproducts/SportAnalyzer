@@ -1,0 +1,26 @@
+# Normalise line endings so a Windows checkout does not produce CRLF files
+# inside Linux containers (CRLF in an entrypoint script breaks the shebang).
+* text=auto eol=lf
+
+# These must stay LF regardless of platform.
+*.sh          text eol=lf
+Dockerfile    text eol=lf
+Makefile      text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
+*.py          text eol=lf
+*.ts          text eol=lf
+*.tsx         text eol=lf
+
+# Binary assets - never touch.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+
+# Lockfiles are generated; collapse them in diffs and PR reviews.
+package-lock.json -diff linguist-generated
